@@ -31,7 +31,7 @@ except:
 def get_tw_market_calendar():
     """ 獲取台股實際交易日序列，用以跨越六日與例假日精準計算連續上榜天數 """
     try:
-        # 嵌入修正：放寬至 45d 歷史，確保清晨 08:05 尚未開盤時，依然能穩定取得完整的交易日曆序列
+        # 確保此處前面的空格與下方的 if 完全對齊 (4個空格)
         twii = yf.Ticker("^TWII").history(period="45d")
         if not twii.empty:
             return sorted(pd.to_datetime(twii.index.date).tolist())
