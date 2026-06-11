@@ -684,19 +684,23 @@ def main():
     st.title("📈 A計畫：60分K線超賣區全自動多策略攔截系統")
 
     # ====================================================================
-    # 💡 新增功能：動態讀取歷史檔案的最後更新時間
+    # 💡 修正功能：強制轉換為台灣時區 (UTC+8) 的檔案更新時間
     # ====================================================================
     hist_file = get_history_filename()
     if os.path.exists(hist_file):
         try:
             # 取得檔案最後修改的時間戳
             mtime = os.path.getmtime(hist_file)
-            # 轉換為本地時間格式 (YYYY/MM/DD HH:MM)
-            file_dt = datetime.fromtimestamp(mtime)
-            update_time_str = file_dt.strftime("%Y/%m/%d %H:%M")
 
-            # 使用 Streamlit 提示框大大的顯示在標題下方
-            st.info(f"📊 **目前最新數據分析完成時間：** `{update_time_str}`")
+            # 💡 先取得世界標準時間 (UTC)，再手動加上 8 小時轉換為台灣時間
+            utc_dt = datetime.fromtimestamp(mtime, tz=None)  # 如果伺服器是世界標準時間
+            # 為了確保在任何國外伺服器都準確，改用 utcfromtimestamp 加上 8 小時：
+            tw_dt = datetime.utcfromtimestamp(mtime) + timedelta(hours=8)
+
+            update_time_str = tw_dt.strftime("%Y/%m/%d %H:%M")
+
+            # 使用 Streamlit 提示框顯示在標題下方
+            st.info(f"📊 **目前最新數據分析完成時間 (台北時間)：** `{update_time_str}`")
         except Exception as e:
             pass
     else:
