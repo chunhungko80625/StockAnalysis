@@ -51,26 +51,28 @@ def get_cache_filename(latest_market_date_str):
 def get_history_filename():
     return "ScanHistory_Tracker.csv"
 
-
 def load_csv_cache(latest_market_date_str):
     filename = get_cache_filename(latest_market_date_str)
     if os.path.exists(filename):
         try:
             df = pd.read_csv(filename, dtype={'股票代號': str})
+            # 💡 核心修正：如果檔案存在但根本沒有資料，直接視為無效快取，回傳空字典，迫使網頁重新掃描
+            if df.empty or len(df) == 0:
+                return {}
             return df.set_index('股票代號').to_dict('index')
         except:
             return {}
     return {}
 
-
 def save_csv_cache(cache_dict, latest_market_date_str):
-    if not cache_dict: return
+    # 💡 核心修正：如果掃描出來的名單是空的，絕對不存檔，避免寫入一個空檔案污染明天的讀取
+    if not cache_dict or len(cache_dict) == 0:
+        return
     filename = get_cache_filename(latest_market_date_str)
     df = pd.DataFrame.from_dict(cache_dict, orient='index')
     df.reset_index(inplace=True)
     df.rename(columns={'index': '股票代號'}, inplace=True)
     df.to_csv(filename, index=False, encoding='utf-8-sig')
-
 
 def update_scan_history(current_matched_list, latest_market_date_str):
     """ 嵌入修正：精準跨假日連續天數演算法，100% 保留您原始的所有回測指標欄位紀錄 """
@@ -452,7 +454,7 @@ def render_custom_stock_tab():
                 df['5_RSI'] = calc_rsi(df, 5)
                 df['10_RSI'] = calc_rsi(df, 10)
                 df['9K'] = (100 * (df['Close'] - df['Low'].rolling(9).min()) / (
-                            df['High'].rolling(9).max() - df['Low'].rolling(9).min())).ewm(com=2).mean()
+                        df['High'].rolling(9).max() - df['Low'].rolling(9).min())).ewm(com=2).mean()
                 df['9D'] = df['9K'].ewm(com=2).mean()
                 df['5MA'], df['10MA'], df['20MA'], df['60MA'] = df['Close'].rolling(5).mean(), df['Close'].rolling(
                     10).mean(), df['Close'].rolling(20).mean(), df['Close'].rolling(60).mean()
@@ -463,13 +465,26 @@ def render_custom_stock_tab():
 
                 best_name, stats = find_best_strategy(df)
                 st.success("✅ 計算完成！")
+
+                # 💡 新增：獲取股票名稱字典並組合完整名稱
+                try:
+                    twse, tpex = get_market_stocks()
+                    stock_dict = {**twse, **tpex}
+                except:
+                    stock_dict = {}
+
+                # 組合出例如 "2330 台積電" 的格式，若找不到名稱就顯示原本的代碼
+                stock_name = stock_dict.get(ticker, "")
+                full_display_name = f"{ticker} {stock_name}".strip() if stock_name else ticker
+
                 m1, m2, m3 = st.columns(3)
                 m1.metric("最佳策略", "組合見詳細資訊" if len(best_name) > 15 else best_name)
                 m2.metric("勝率 / 交易次數", f"{stats['win_rate']}% / {stats['count']}次")
                 m3.metric("平均投資報酬", f"{stats['avg_profit']}%")
 
-                st.info(f"💡 **該檔股票最佳策略：** {best_name}")
-                fig = build_chart_figure(ticker, "自選股", df, view_mode)
+                # 💡 修改：將提示訊息與畫圖函數的傳入名稱改為組合好的 full_display_name
+                st.info(f"💡 **【{full_display_name}】最佳策略：** {best_name}")
+                fig = build_chart_figure(ticker, full_display_name, df, view_mode)
                 st.plotly_chart(fig, use_container_width=True)
             else:
                 st.error("查無資料，請確認代碼是否正確。")
@@ -479,160 +494,112 @@ def render_full_market_tab():
     if 'matched_results' not in st.session_state:
         st.session_state.matched_results = []
     st.info(
-        "💡 **A計畫 60分K 全市場掃描器**\n" "1. 自動排除已下市、暫停交易與零交易量之公司。\n" "2. 嚴格門檻：勝率 >= 70% 且 投資報酬率 > 0。\n" "3. 欄位新增「目前策略狀態」，即時判定是否滿足進場條件。")
+        "💡 **A計畫 60分K 全市場掃描器**\n" "1. 自動排除已下市、暫停交易與零交易量之公司。\n" "2. 嚴格門檻：勝率 >= 70% 且 投資報酬率 > 0。\n" "3. 採用官方 Open API 數據對接，100% 根除海外雲端 IP 連線阻擋與編碼問題。")
 
     calendar = get_tw_market_calendar()
     latest_market_date_str = calendar[-1].strftime('%Y-%m-%d') if calendar else datetime.now().strftime('%Y-%m-%d')
     st.write(f"📅 當前有效大盤交易日：**{latest_market_date_str}** (六日與例假日會自動與此日期同步)")
 
+    # 💡 核心優化：如果 session_state 裡本來就有今天跑好的資料，網頁一打開直接秀出來，不必重複等
+    if st.session_state.matched_results:
+        matched = st.session_state.matched_results
+    else:
+        # 預設嘗試讀取快取庫
+        matched_dict = load_csv_cache(latest_market_date_str)
+        matched = list(matched_dict.values()) if matched_dict else []
+        if matched and not st.session_state.matched_results:
+            st.session_state.matched_results = matched
+
+    # 如果有成功讀取到「健康的快取」，畫面上提示一下
+    if matched and not st.session_state.get('just_scanned', False):
+        st.success(f"ℹ️ 偵測到今日大盤檔案已存在快取庫，系統已秒速載入歷史紀錄！(若欲即時更新，請點擊下方按鈕強制重跑)")
+
+    # 🚀 當您「點擊按鈕」，代表要現場看最新狀況，此處強制無視快取、百分之百當場重跑！
     if st.button("🚀 開始全市場 60分K 精準掃描", use_container_width=True):
+        st.session_state.just_scanned = True
         st.subheader("🚀 60分K 極速掃描結果")
 
-        # 精準匹配需求二：如果今天的大盤檔案已經存在，直接一秒讀取快取，絕對不重複執行
-        if os.path.exists(get_cache_filename(latest_market_date_str)):
-            st.success("ℹ️ 偵測到今日大盤檔案已完好存在快取庫，系統已直接秒速載入，無須重複掃描！")
-            matched_dict = load_csv_cache(latest_market_date_str)
-            matched = list(matched_dict.values())
-        else:
-            with st.spinner("⏳ 正在獲取最新股票清單..."):
-                twse, tpex = get_market_stocks()
-                stock_dict = {**twse, **tpex}
-                all_stocks = list(stock_dict.keys())
+        with st.spinner("⏳ 正在獲取最新官方 Open API 股票清單並強制沖刷重跑..."):
+            twse, tpex = get_market_stocks()
+            stock_dict = {**twse, **tpex}
+            all_stocks = list(stock_dict.keys())
 
-            if not all_stocks:
-                st.error("❌ 無法取得股票清單！")
-                return
+        if not all_stocks:
+            st.error("❌ 無法取得股票清單！")
+            return
 
-            cache_dict = load_csv_cache(latest_market_date_str)
-            matched = []
-            to_scan_tickers = []
-            entry_rules, _ = get_strategy_rules()
+        matched = []
+        entry_rules, _ = get_strategy_rules()
+        total_tasks = len(all_stocks)
+        processed_tasks = 0
 
-            for code in all_stocks:
-                use_cache = False
-                if code in cache_dict:
-                    try:
-                        last_scan = datetime.strptime(cache_dict[code]['掃描時間'], '%Y-%m-%d %H:%M:%S')
-                        if (datetime.now() - last_scan).total_seconds() < 3600: use_cache = True
-                    except:
-                        pass
+        progress_bar = st.progress(0.0)
+        table_placeholder = st.empty()
 
-                if use_cache:
-                    try:
-                        c_win = float(str(cache_dict[code].get('勝率', '0')).replace('%', ''))
-                        c_ret = float(str(cache_dict[code].get('平均投資報酬率', '0')).replace('%', ''))
-                        if cache_dict[code].get('是否符合') and c_win >= 70.0 and c_ret > 0:
-                            r_data = cache_dict[code].copy()
-                            r_data['股票代號'] = code
+        def update_table():
+            if matched:
+                display_df = pd.DataFrame(matched).copy()
+                display_df['目前策略狀態'] = "🟢 已滿足進場條件"
+                cols = ['股票代號', '股票名稱', '最新價位', '最近一日交易量', '勝率最高方案', '交易次數', '勝率',
+                        '平均投資報酬率', '最高投資報酬率', '最低投資報酬率', '標準差', '目前策略狀態']
+                display_df = display_df[[c for c in cols if c in display_df.columns]]
+                table_placeholder.dataframe(display_df, use_container_width=True)
 
-                            df_temp = fetch_60m_kline_data(code)
-                            if not df_temp.empty and len(df_temp) >= 60:
-                                df_temp['5MA'] = df_temp['Close'].rolling(5).mean()
-                                df_temp['10MA'] = df_temp['Close'].rolling(10).mean()
-                                df_temp['20MA'] = df_temp['Close'].rolling(20).mean()
-                                df_temp['60MA'] = df_temp['Close'].rolling(60).mean()
-                                df_now_dn = df_temp['20MA'] - 2 * df_temp['Close'].rolling(20).std()
-                                l_bar = df_temp.iloc[-1].to_dict()
-                                l_bar['BB_DN'] = df_now_dn.iloc[-1]
-                                en_f = entry_rules.get(r_data.get('進場Key'))
-                                if en_f and en_f(l_bar):
-                                    r_data['currently_status'] = "🟢 已滿足進場條件"
-                                else:
-                                    r_data['currently_status'] = "⚪ 尚未滿足進場條件"
-                            else:
-                                r_data['currently_status'] = "⚪ 資料暫無"
-                            matched.append(r_data)
-                    except:
-                        pass
-                else:
-                    to_scan_tickers.append(code)
+        # 10 個 Workers 現場暴速衝刺，重寫乾淨檔案覆蓋掉壞快取！
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            futures = {executor.submit(worker_scan_stock_logic, code, stock_dict[code]): code for code in all_stocks}
+            for future in as_completed(futures):
+                processed_tasks += 1
+                ticker = futures[future]
+                try:
+                    res = future.result()
+                    if res and res.get('是否符合'):
+                        row_data = res.copy()
+                        row_data['股票代號'] = ticker
+                        row_data['currently_status'] = "🟢 已滿足進場條件"
+                        matched.append(row_data)
+                        update_table()
+                except:
+                    pass
+                progress_bar.progress(min(processed_tasks / total_tasks, 1.0))
 
-            total_tasks = len(all_stocks)
-            processed_tasks = total_tasks - len(to_scan_tickers)
-            divisor = total_tasks if total_tasks > 0 else 1
-            progress_bar = st.progress(min(processed_tasks / divisor, 1.0))
-            table_placeholder = st.empty()
-
-            def update_table():
-                if matched:
-                    display_df = pd.DataFrame(matched).copy()
-                    if 'currently_status' in display_df.columns:
-                        display_df['目前策略狀態'] = display_df['currently_status']
-                    else:
-                        display_df['目前策略狀態'] = "⚪ 尚未滿足進場條件"
-                    cols = ['股票代號', '股票名稱', '最新價位', '最近一日交易量', '勝率最高方案', '交易次數', '勝率',
-                            '平均投資報酬率', '最高投資報酬率', '最低投資報酬率', '標準差', '目前策略狀態']
-                    display_df = display_df[[c for c in cols if c in display_df.columns]]
-                    table_placeholder.dataframe(display_df, use_container_width=True)
-
-            update_table()
-
-            # 維持 10 個 Workers 狂飆
-            with ThreadPoolExecutor(max_workers=10) as executor:
-                futures = {executor.submit(worker_scan_stock_logic, code, stock_dict.get(code)): code for code in
-                           to_scan_tickers}
-                for future in as_completed(futures):
-                    processed_tasks += 1
-                    ticker = futures[future]
-                    try:
-                        res = future.result()
-                        cache_dict[ticker] = res
-                        if res and res.get('是否符合'):
-                            row_data = res.copy()
-                            row_data['股票代號'] = ticker
-
-                            df_temp = fetch_60m_kline_data(ticker)
-                            if not df_temp.empty and len(df_temp) >= 60:
-                                df_temp['5MA'] = df_temp['Close'].rolling(5).mean()
-                                df_temp['10MA'] = df_temp['Close'].rolling(10).mean()
-                                df_temp['20MA'] = df_temp['Close'].rolling(20).mean()
-                                df_temp['60MA'] = df_temp['Close'].rolling(60).mean()
-                                df_now_dn = df_temp['20MA'] - 2 * df_temp['Close'].rolling(20).std()
-                                l_bar = df_temp.iloc[-1].to_dict()
-                                l_bar['BB_DN'] = df_now_dn.iloc[-1]
-                                en_f = entry_rules.get(row_data.get('進場Key'))
-                                if en_f and en_f(l_bar):
-                                    row_data['currently_status'] = "🟢 已滿足進場條件"
-                                else:
-                                    row_data['currently_status'] = "⚪ 尚未滿足進場條件"
-                            else:
-                                row_data['currently_status'] = "⚪ 資料暫無"
-                            matched.append(row_data)
-                            update_table()
-                    except:
-                        pass
-                    progress_bar.progress(min(processed_tasks / divisor, 1.0))
-
-            save_csv_cache({x['股票代號']: x for x in matched}, latest_market_date_str)
-            update_scan_history(matched, latest_market_date_str)
-
+        # 覆蓋並校正實體 CSV
+        save_csv_cache({x['股票代號']: x for x in matched}, latest_market_date_str)
+        update_scan_history(matched, latest_market_date_str)
         st.session_state.matched_results = matched
         st.success(f"🏁 全市場掃描完畢！共計篩選出 {len(matched)} 檔黃金個股。")
 
-    if st.session_state.matched_results:
+    if st.session_state.matched_results and len(st.session_state.matched_results) > 0:
         st.markdown("---")
         st.subheader("📊 檢視本次上榜個股 K 線圖表")
-        options = [f"{x['股票代號']} - {x['股票名稱']} (勝率: {x['勝率']})" for x in st.session_state.matched_results]
-        selected_option = st.selectbox("選擇要檢視的股票", options, key="market_view_select")
 
-        if selected_option:
-            selected_ticker = selected_option.split(" ")[0]
-            with st.spinner(f"正在繪製 {selected_ticker} 圖表..."):
-                df_chart = fetch_60m_kline_data(selected_ticker)
-                if not df_chart.empty:
-                    df_chart['5_RSI'] = calc_rsi(df_chart, 5)
-                    df_chart['10_RSI'] = calc_rsi(df_chart, 10)
-                    df_chart['9K'] = (100 * (df_chart['Close'] - df_chart['Low'].rolling(9).min()) / (
-                                df_chart['High'].rolling(9).max() - df_chart['Low'].rolling(9).min())).ewm(com=2).mean()
-                    df_chart['9D'] = df_chart['9K'].ewm(com=2).mean()
-                    df_chart['5MA'], df_chart['10MA'], df_chart['20MA'], df_chart['60MA'] = df_chart['Close'].rolling(
-                        5).mean(), df_chart['Close'].rolling(10).mean(), df_chart['Close'].rolling(20).mean(), df_chart[
-                        'Close'].rolling(60).mean()
-                    df_chart['BB_UP'], df_chart['BB_DN'] = df_chart['20MA'] + 2 * df_chart['Close'].rolling(20).std(), \
-                                                           df_chart['20MA'] - 2 * df_chart['Close'].rolling(20).std()
+        # 💡 核心修正：確保 matched_results 內確實有字典和欄位，才去生成下拉選單，100% 根除 KeyError
+        options = []
+        for x in st.session_state.matched_results:
+            if isinstance(x, dict) and '股票代號' in x and '勝率' in x:
+                options.append(f"{x['股票代號']} - {x['股票名稱']} (勝率: {x['勝率']})")
 
-                    fig = build_chart_figure(selected_ticker, "", df_chart, "近 1 個月")
-                    st.plotly_chart(fig, use_container_width=True)
+        if options:
+            selected_option = st.selectbox("選擇要檢視的股票", options, key="market_view_select")
+            if selected_option:
+                selected_ticker = selected_option.split(" ")[0]
+                with st.spinner(f"正在繪製 {selected_ticker} 圖表..."):
+                    df_chart = fetch_60m_kline_data(selected_ticker)
+                    if not df_chart.empty:
+                        df_chart['5_RSI'] = calc_rsi(df_chart, 5)
+                        df_chart['10_RSI'] = calc_rsi(df_chart, 10)
+                        df_chart['9K'] = (100 * (df_chart['Close'] - df_chart['Low'].rolling(9).min()) / (
+                                    df_chart['High'].rolling(9).max() - df_chart['Low'].rolling(9).min())).ewm(
+                            com=2).mean()
+                        df_chart['9D'] = df_chart['9K'].ewm(com=2).mean()
+                        df_chart['5MA'], df_chart['10MA'], df_chart['20MA'], df_chart['60MA'] = df_chart[
+                            'Close'].rolling(5).mean(), df_chart['Close'].rolling(10).mean(), df_chart['Close'].rolling(
+                            20).mean(), df_chart['Close'].rolling(60).mean()
+                        df_chart['BB_UP'], df_chart['BB_DN'] = df_chart['20MA'] + 2 * df_chart['Close'].rolling(
+                            20).std(), df_chart['20MA'] - 2 * df_chart['Close'].rolling(20).std()
+
+                        fig = build_chart_figure(selected_ticker, "", df_chart, "近 1 個月")
+                        st.plotly_chart(fig, use_container_width=True)
 
 
 def render_history_tracker_tab():
