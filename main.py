@@ -47,6 +47,18 @@ def get_cache_filename(latest_market_date_str):
     # 嵌入修正：快取檔名改以「大盤最新實際交易日」命名，確保假日不重跑重複的檔案
     return f"ScanCache_APlan_{latest_market_date_str}.csv"
 
+def get_file_update_time_str(filepath):
+    """ 獲取檔案的最後修改時間，並格式化為字串 """
+    if os.path.exists(filepath):
+        try:
+            # 取得檔案最後修改的時間戳
+            mtime = os.path.getmtime(filepath)
+            # 轉換為本地時間
+            dt = datetime.fromtimestamp(mtime)
+            return dt.strftime("%Y/%m/%d %H:%M")
+        except:
+            pass
+    return None
 
 def get_history_filename():
     return "ScanHistory_Tracker.csv"
@@ -670,10 +682,34 @@ def main():
 
     st.set_page_config(page_title="A計畫：60分K線全市場全自動攔截系統", layout="wide")
     st.title("📈 A計畫：60分K線超賣區全自動多策略攔截系統")
+
+    # ====================================================================
+    # 💡 新增功能：動態讀取歷史檔案的最後更新時間
+    # ====================================================================
+    hist_file = get_history_filename()
+    if os.path.exists(hist_file):
+        try:
+            # 取得檔案最後修改的時間戳
+            mtime = os.path.getmtime(hist_file)
+            # 轉換為本地時間格式 (YYYY/MM/DD HH:MM)
+            file_dt = datetime.fromtimestamp(mtime)
+            update_time_str = file_dt.strftime("%Y/%m/%d %H:%M")
+
+            # 使用 Streamlit 提示框大大的顯示在標題下方
+            st.info(f"📊 **目前最新數據分析完成時間：** `{update_time_str}`")
+        except Exception as e:
+            pass
+    else:
+        st.warning("💡 目前尚未建立歷史追蹤檔案，請執行全市場掃描以產生數據。")
+    # ====================================================================
+
     tab1, tab2, tab3 = st.tabs(["🎯 自選股個股分析", "🚀 全市場極速掃描", "📜 歷日上榜動態追蹤"])
-    with tab1: render_custom_stock_tab()
-    with tab2: render_full_market_tab()
-    with tab3: render_history_tracker_tab()
+    with tab1:
+        render_custom_stock_tab()
+    with tab2:
+        render_full_market_tab()
+    with tab3:
+        render_history_tracker_tab()
 
 
 if __name__ == "__main__":
