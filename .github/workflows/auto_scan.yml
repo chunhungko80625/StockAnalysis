@@ -2,9 +2,11 @@ name: APlan Multi-Hour Auto Scan Tool
 
 on:
   schedule:
-    # 台灣時間 08:05, 09:05, 10:05, 11:05, 12:05, 13:05, 14:05
-    - cron: '5 0,1,2,3,4,5,6 * * 1-5'
-  workflow_dispatch: # 允許您在 GitHub 後台手動點擊按鈕強制執行
+    # 💡 今晚測試用：台灣時間 23:35 (UTC 15:35)
+    - cron: '35 15 * * *'
+    # 💡 今晚測試用：台灣時間 23:45 (UTC 15:45)
+    - cron: '45 15 * * *'
+  workflow_dispatch: # 允許手動執行
 
 # 💡 關鍵修正：必須賦予寫入權限，否則下方的 git push 會被 GitHub 拒絕
 permissions:
