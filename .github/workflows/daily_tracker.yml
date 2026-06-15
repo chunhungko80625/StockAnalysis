@@ -1,10 +1,10 @@
-name: APlan Multi-Hour Auto Scan Tool
+name: APlan Daily Tracker System
 
 on:
   schedule:
     # 台灣時間 08:14, 09:14, 10:14, 11:14, 12:14, 13:14, 14:14
     - cron: '14 0,1,2,3,4,5,6 * * 1-5'
-  workflow_dispatch: 
+  workflow_dispatch:
 
 permissions:
   contents: write
