@@ -2,20 +2,18 @@ name: APlan Multi-Hour Auto Scan Tool
 
 on:
   schedule:
-    # 💡 今晚測試用：台灣時間 23:35 (UTC 15:35)
-    - cron: '35 15 * * *'
-    # 💡 今晚測試用：台灣時間 23:45 (UTC 15:45)
-    - cron: '45 15 * * *'
-  workflow_dispatch: # 允許手動執行
+    # 💡 測試時間：台灣時間 00:00 (UTC 16:00)
+    - cron: '0 16 * * *'
+    # 💡 測試時間：台灣時間 00:10 (UTC 16:10)
+    - cron: '10 16 * * *'
+  workflow_dispatch: 
 
-# 💡 關鍵修正：必須賦予寫入權限，否則下方的 git push 會被 GitHub 拒絕
 permissions:
   contents: write
 
 jobs:
   run-scanner:
     runs-on: ubuntu-latest
-
     steps:
     - name: 🔁 複製 GitHub 專案代碼
       uses: actions/checkout@v3
@@ -40,5 +38,5 @@ jobs:
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action Bot"
         git add ScanCache_APlan_*.csv ScanHistory_Tracker.csv || true
-        git commit -m "🤖 盤中即時更新：自動化同步 [$(date +'%Y-%m-%d %H:%M:%S')]" || true
+        git commit -m "🤖 測試排程更新：自動化同步 [$(date +'%Y-%m-%d %H:%M:%S')]" || true
         git push || true
