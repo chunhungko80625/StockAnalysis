@@ -2,11 +2,8 @@ name: APlan Multi-Hour Auto Scan Tool
 
 on:
   schedule:
-    # 💡 測試時間：台灣時間 00:00 (UTC 16:00)
-    - cron: '0 16 * * *'
-    # 💡 測試時間：台灣時間 00:10 (UTC 16:10)
-    - cron: '10 16 * * *'
-  workflow_dispatch: 
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
 
 permissions:
   contents: write
