@@ -4,7 +4,7 @@ on:
   schedule:
     # 台灣時間 08:14, 09:14, 10:14, 11:14, 12:14, 13:14, 14:14
     - cron: '14 0,1,2,3,4,5,6 * * 1-5'
-  workflow_dispatch:
+  workflow_dispatch: 
 
 permissions:
   contents: write
@@ -37,37 +37,4 @@ jobs:
         git config --local user.name "GitHub Action Bot"
         git add ScanCache_APlan_*.csv ScanHistory_Tracker.csv || true
         git commit -m "🤖 盤中定時更新：自動化同步 [$(date +'%Y-%m-%d %H:%M:%S')]" || true
-        git push || true
-
-permissions:
-  contents: write
-
-jobs:
-  run-scanner:
-    runs-on: ubuntu-latest
-    steps:
-    - name: 🔁 複製 GitHub 專案代碼
-      uses: actions/checkout@v3
-
-    - name: 🐍 配置 Python 執行環境
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.10'
-        cache: 'pip'
-
-    - name: 📦 安裝相依套件
-      run: |
-        python -m pip install --upgrade pip
-        pip install streamlit yfinance pandas requests plotly lxml
-
-    - name: 🚀 執行全市場掃描
-      run: |
-        python main.py --automation
-
-    - name: 💾 將新累積的歷史 CSV 紀錄安全存回您的 GitHub Repo
-      run: |
-        git config --local user.email "action@github.com"
-        git config --local user.name "GitHub Action Bot"
-        git add ScanCache_APlan_*.csv ScanHistory_Tracker.csv || true
-        git commit -m "🤖 測試排程更新：自動化同步 [$(date +'%Y-%m-%d %H:%M:%S')]" || true
         git push || true
